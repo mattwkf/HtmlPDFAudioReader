@@ -1,0 +1,1711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speechify Clone - Notes & Keywords</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --panel-color: #2a2a2a;
+            --accent-color: #e5e5e5;
+            --accent-hover: #ffffff;
+            --highlight-color: #fde047;
+            --keyword-color: rgba(74, 222, 128, 0.4); 
+            --text-color: #e5e5e5;
+            --border-color: #404040;
+        }
+
+        body {
+            background: var(--bg-color);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: var(--text-color);
+            overflow: hidden;
+        }
+
+        .controls {
+            padding: 10px 25px;
+            background: var(--panel-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            z-index: 100;
+            height: 33px;
+        }
+        .control-group { display: flex; align-items: center; gap: 10px; }
+
+        .btn-secondary {
+            background: transparent; color: #ccc; border: 1px solid transparent;
+            border-radius: 6px; padding: 6px 10px; cursor: pointer;
+            transition: all 0.2s ease; display: flex; align-items: center; gap: 6px;
+            font-size: 13px; font-weight: 500;
+        }
+        .btn-secondary:hover { background: #333; color: white; }
+        .btn-secondary.active {
+            background: rgba(59, 130, 246, 0.2); color: #60a5fa;
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+
+        input[type="file"] { font-size: 12px; color: #888; }
+        input[type="file"]::file-selector-button {
+            background: #333; color: #ddd; border: 1px solid #555;
+            padding: 5px 12px; border-radius: 6px; cursor: pointer;
+            margin-right: 10px; font-size: 12px;
+        }
+        input[type="file"]::file-selector-button:hover { background: #444; }
+
+        #viewer-wrapper {
+            flex: 1; overflow-y: auto; position: relative;
+            display: flex; flex-direction: column; align-items: center;
+            padding: 40px 0; padding-bottom: 150px;
+            background-color: #525659;
+            transition: margin-right 0.3s ease;
+        }
+        .pdf-page {
+            position: relative; 
+            background: white;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3); 
+            margin-bottom: 20px;
+            
+            /* ADD THESE 2 LINES: */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        canvas { display: block; }
+        .textLayer { 
+            opacity: 1; 
+            mix-blend-mode: multiply; 
+            line-height: 1.0;
+            
+            /* ADD THESE 2 LINES: */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .textLayer span { color: transparent; pointer-events: none !important; border: none !important; }
+
+        .textLayer .word-span {
+            pointer-events: auto !important; 
+            display: inline;
+            vertical-align: baseline; 
+            margin: 0; padding: 0;
+            position: relative; 
+            z-index: 10; 
+            border-radius: 2px;
+
+            /* ADD THESE 3 LINES: */
+            cursor: text;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+
+        .textLayer .keyword-highlight {
+            background-color: var(--keyword-color) !important;
+            border-bottom: 2px solid #22c55e;
+            box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.3);
+        }
+
+
+        body:not(.mode-notes) .textLayer .word-span:hover {
+            background-color: rgba(37, 99, 235, 0.2) !important; 
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1); 
+        }
+
+        body.mode-notes .textLayer .word-span { cursor: text; }
+        body.mode-notes .textLayer .word-span::selection { background: rgba(253, 224, 71, 0.4); }
+        
+
+        .textLayer .word-active {
+            background-color: rgba(255, 230, 0, 1.0) !important; 
+            box-shadow: 0 0 0 2px rgba(255, 230, 0, 0.5);
+            z-index: 20; mix-blend-mode: multiply;
+        }
+        .textLayer .sentence-active { background-color: rgba(50, 150, 255, 0.2); }
+
+
+        .notes-sidebar {
+            position: fixed; top: 54px; right: -600px; bottom: 0;
+            width: 350px; min-width: 250px; max-width: 800px;
+            background: #222; border-left: 1px solid var(--border-color); 
+            z-index: 400; transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; flex-direction: column; box-shadow: none; 
+        }
+        .notes-sidebar.open { right: 0; }
+        
+        .resize-handle {
+            position: absolute; left: -5px; top: 0; bottom: 0; width: 10px;
+            cursor: col-resize; z-index: 500;
+        }
+        .resize-handle:hover { background: rgba(59, 130, 246, 0.5); }
+
+        .notes-header {
+            padding: 15px 20px; border-bottom: 1px solid #333;
+            display: flex; justify-content: space-between; align-items: center;
+            background: #252525;
+        }
+        .notes-header h3 { margin: 0; font-size: 16px; color: #fff; }
+        .notes-content { flex: 1; overflow-y: auto; padding: 20px; }
+        
+        .notes-list { list-style: none; padding: 0; margin: 0; counter-reset: level0; }
+
+        .note-item {
+            display: flex; align-items: flex-start; gap: 6px; 
+            margin-bottom: 4px; padding: 4px 6px;
+            transition: margin-left 0.1s, background 0.2s; position: relative;
+            border-radius: 4px;
+        }
+        
+        .note-item:hover { background: #2a2a2a; }
+        .note-item:hover .btn-delete,
+        .note-item:hover .vertical-drag-handle { opacity: 1; }
+
+        .vertical-drag-handle {
+            opacity: 0; cursor: grab; color: #666;
+            font-size: 16px; font-weight: bold; line-height: 1.5; 
+            user-select: none; padding: 0 4px; display: flex; align-items: center;
+            transition: opacity 0.2s;
+        }
+        .vertical-drag-handle:active { cursor: grabbing; color: #fff; }
+
+        .note-marker-container {
+            min-width: 24px; cursor: default; user-select: none;
+            text-align: right; color: var(--highlight-color);
+            font-weight: bold; font-size: 13px; padding-top: 2px;
+        }
+
+
+        .note-text {
+            flex: 1; font-size: 14px; color: #ddd; line-height: 1.5;
+            word-break: break-word; outline: none;
+        }
+        .note-text:empty::before { content: "Type note here..."; color: #555; font-style: italic; }
+
+        .btn-delete {
+            opacity: 0; background: none; border: none;
+            color: #ef4444; font-weight: bold; cursor: pointer;
+            padding: 0 5px; font-size: 14px; transition: opacity 0.2s;
+        }
+        .btn-delete:hover { color: #ff0000; background: rgba(255, 0, 0, 0.1); border-radius: 4px; }
+
+        .btn-add-note-placeholder {
+            width: 100%; padding: 8px; margin-top: 5px; margin-bottom: 15px;
+            background: transparent; border: 1px dashed #444; color: #666;
+            border-radius: 6px; cursor: pointer; font-size: 12px; text-align: left;
+            transition: all 0.2s;
+        }
+        .btn-add-note-placeholder:hover { border-color: #666; color: #ccc; background: rgba(255, 255, 255, 0.05); }
+
+        .note-item.dragging { opacity: 0.5; background: #333; border: 1px dashed #555; }
+
+        .note-item[data-level="0"] { margin-left: 0px; counter-increment: level0; }
+        .note-item[data-level="0"] .note-marker-container::before { content: counter(level0) "."; color: #fff; }
+        .note-item[data-level="0"] + .note-item[data-level="0"] { counter-increment: level0; }
+        
+        .note-item[data-level="1"] { margin-left: 20px; counter-increment: level1; }
+        .note-item[data-level="1"] .note-marker-container::before { content: counter(level1, lower-alpha) "."; }
+        .note-item[data-level="0"] + .note-item[data-level="1"] { counter-reset: level1; }
+        
+        .note-item[data-level="2"] { margin-left: 40px; }
+        .note-item[data-level="2"] .note-marker-container::before { content: "→"; }
+        .note-item[data-level="3"] { margin-left: 60px; }
+        .note-item[data-level="3"] .note-marker-container::before { content: "•"; font-size: 18px; line-height: 0.8;}
+        .note-item[data-level="4"] { margin-left: 80px; }
+        .note-item[data-level="4"] .note-marker-container::before { content: "○"; font-size: 14px; }
+        .note-item[data-level="5"] { margin-left: 100px; }
+        .note-item[data-level="5"] .note-marker-container::before { content: "▪"; font-size: 16px; line-height: 0.8;}
+        .note-item[data-level="6"] { margin-left: 120px; }
+        .note-item[data-level="6"] .note-marker-container::before { content: "-"; }
+        .note-item[data-level="7"] { margin-left: 140px; }
+        .note-item[data-level="7"] .note-marker-container::before { content: "*"; top: 3px; position: relative;}
+
+        .note-section-title {
+            color: #fff; font-size: 12px; text-transform: uppercase;
+            letter-spacing: 1px; background: #333; padding: 5px 10px;
+            border-radius: 4px; margin-top: 15px; margin-bottom: 5px; font-weight: bold;
+        }
+
+        .notes-footer { padding: 15px; border-top: 1px solid #333; background: #252525; }
+        .btn-copy-all {
+            width: 100%; padding: 10px; background: #333; border: 1px solid #444;
+            color: white; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;
+        }
+        .btn-copy-all:hover { background: #444; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        .player-dock-container {
+            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+            z-index: 500; display: flex; justify-content: center; transition: opacity 0.2s;
+        }
+        body.mode-notes .player-dock-container { opacity: 0.2; pointer-events: none; }
+
+        .player-dock {
+            background: rgba(40, 40, 40, 0.85); backdrop-filter: blur(12px);
+            border-radius: 50px; padding: 8px 20px; display: flex; align-items: center; gap: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+        .btn-icon {
+            background: transparent; border: none; color: #bbb; cursor: pointer;
+            padding: 8px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s;
+        }
+        .btn-icon:hover { color: white; background: rgba(255,255,255,0.05); }
+        .btn-icon svg { width: 22px; height: 22px; fill: currentColor; } 
+        .btn-play-large {
+            background: var(--accent-color); color: #1a1a1a; padding: 12px; border-radius: 50%;
+            margin: 0 5px; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+        .btn-play-large:hover { background: var(--accent-hover); transform: scale(1.05); }
+        .btn-play-large svg { width: 20px; height: 20px; fill: #1a1a1a; margin-left: 2px; }
+        #btn-pause svg { margin-left: 0; }
+
+        /* --- MODALS --- */
+        .modal-overlay {
+            position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(3px); display: flex; justify-content: center; align-items: center;
+            z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        }
+        .modal-overlay.open { opacity: 1; pointer-events: auto; }
+        .settings-box {
+            background: #252525; padding: 25px; border-radius: 16px; width: 320px;
+            border: 1px solid #404040; box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+        }
+        .settings-header { display: flex; justify-content: space-between; margin-bottom: 20px; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        .settings-header h2 { margin: 0; font-size: 16px; color: white; }
+        
+        .setting-row { margin-bottom: 15px; }
+        .setting-row label { display: block; font-size: 12px; color: #aaa; margin-bottom: 6px; }
+        
+        select { width: 100%; padding: 8px; background: #333; border: 1px solid #444; color: white; border-radius: 6px; }
+        .settings-input-group { display: flex; gap: 5px; margin-bottom: 10px; }
+        .settings-input { flex: 1; padding: 8px; background: #333; border: 1px solid #444; color: white; border-radius: 6px; outline: none; font-size: 13px; }
+        .btn-add { padding: 0 12px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; }
+        textarea.settings-textarea { width: 100%; height: 80px; background: #333; border: 1px solid #444; color: white; border-radius: 6px; padding: 8px; font-family: monospace; resize: vertical; }
+
+        .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #444; transition: .3s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+        input:checked + .slider { background-color: #555; }
+        input:checked + .slider:before { transform: translateX(18px); }
+
+        .hidden { display: none !important; }
+        #loading-overlay {
+            position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.8);
+            z-index: 2000; display: flex; justify-content: center; align-items: center;
+            color: white; font-weight: bold; font-size: 18px;
+        }
+        #loading-overlay.fade-out { opacity: 0; pointer-events: none; transition: opacity 0.5s; }
+        
+        .btn-danger {
+            width: 100%; padding: 10px; background: rgba(239, 68, 68, 0.1); 
+            border: 1px solid #ef4444; color: #ef4444; border-radius: 6px;
+            cursor: pointer; font-size: 13px; font-weight: bold; margin-top: 20px;
+            transition: all 0.2s;
+        }
+        .btn-danger:hover { background: #ef4444; color: white; }
+
+        .library-sidebar {
+            position: fixed; top: 54px; left: -320px; bottom: 0;
+            width: 300px; background: #222; border-right: 1px solid var(--border-color);
+            z-index: 400; transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; flex-direction: column;
+        }
+        .library-sidebar.open { left: 0; }
+
+        .library-header {
+            padding: 15px 20px; border-bottom: 1px solid #333; background: #252525;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .library-header h3 { margin: 0; font-size: 16px; color: #fff; }
+
+        .library-content { flex: 1; overflow-y: auto; padding: 15px; }
+
+
+        .lib-category { margin-bottom: 20px; }
+        .lib-cat-header {
+            font-size: 11px; text-transform: uppercase; color: #888; letter-spacing: 1px;
+            margin-bottom: 8px; font-weight: bold; display: flex; justify-content: space-between;
+            padding: 5px; border-radius: 4px; cursor: default;
+        }
+
+        .lib-cat-header.drag-over { background: rgba(59, 130, 246, 0.2); color: white; }
+
+
+        .lib-item {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 10px; border-radius: 6px; cursor: pointer;
+            margin-bottom: 4px; background: #2a2a2a; border: 1px solid transparent;
+            transition: all 0.2s;
+        }
+        .lib-item:hover { border-color: #444; background: #333; }
+        .lib-item.active { border-color: var(--accent-color); background: rgba(255,255,255,0.05); }
+        
+        .lib-item-icon { font-size: 16px; }
+        .lib-item-info { flex: 1; overflow: hidden; }
+        .lib-item-title { 
+            font-size: 13px; color: #e5e5e5; white-space: nowrap; 
+            overflow: hidden; text-overflow: ellipsis; font-weight: 500;
+        }
+        .lib-item-date { font-size: 11px; color: #777; margin-top: 2px; }
+        
+        .btn-delete-file {
+            background: none; border: none; color: #666; cursor: pointer;
+            font-size: 14px; padding: 4px; opacity: 0; transition: opacity 0.2s;
+        }
+        .lib-item:hover .btn-delete-file { opacity: 1; }
+        .btn-delete-file:hover { color: #ef4444; }
+
+        .btn-add-cat {
+            width: 100%; padding: 10px; background: transparent; border: 1px dashed #444;
+            color: #888; border-radius: 6px; cursor: pointer; font-size: 12px; margin-top: 10px;
+        }
+        .btn-add-cat:hover { border-color: #666; color: #ccc; }
+    </style>
+</head>
+<body>
+
+    <div id="loading-overlay" class="hidden">Recovering session...</div>
+
+    <div class="controls">
+        <div class="control-group">
+            <button id="btn-toggle-library" class="btn-secondary" title="Open Library">
+                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/></svg>
+            </button>
+            <input type="file" id="file-upload" accept="application/pdf">
+        </div>
+        
+        <div class="control-group" style="background: rgba(0,0,0,0.2); padding: 2px; border-radius: 6px;">
+            <button id="btn-zoom-out" class="btn-secondary" style="padding: 4px 8px;">−</button>
+            <span id="zoom-level" style="font-size: 12px; min-width: 40px; text-align: center; color: #aaa;">150%</span>
+            <button id="btn-zoom-in" class="btn-secondary" style="padding: 4px 8px;">+</button>
+        </div>
+
+        <div class="page-counter" id="page-counter" style="font-size: 13px; font-weight: 500; color: #aaa;">
+            -- / --
+        </div>
+
+        <div class="control-group">
+            <button id="btn-toggle-notes" class="btn-secondary" title="Enable Selection Mode">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20.71 7.04c.39-.39.39-1.04 0-1.41l-2.34-2.34c-.37-.39-1.02-.39-1.41 0l-1.84 1.83 3.75 3.75M3 17.25V21h3.75L17.81 9.93l-3.75-3.75L3 17.25z"/></svg>
+                Highlight Mode
+            </button>
+            <button id="btn-settings" class="btn-secondary">
+                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.488.488 0 0 0-.59.22L2.74 8.87a.49.49 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                Settings
+            </button>
+        </div>
+    </div>
+
+    <div class="notes-sidebar" id="notes-sidebar">
+        <div class="resize-handle" id="sidebar-resizer"></div>
+
+        <div class="notes-header">
+            <h3>Your Notes</h3>
+            <button class="btn-icon" id="close-notes">✕</button>
+        </div>
+        <div class="notes-content">
+            <ul class="notes-list" id="notes-list">
+                </ul>
+        </div>
+        <div class="notes-footer">
+            <button class="btn-copy-all" id="btn-copy-notes">Copy All to Clipboard</button>
+        </div>
+    </div>
+
+    <div class="player-dock-container">
+        <div class="player-dock">
+            <button id="btn-prev" class="btn-icon" title="Skip Back">
+                <svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg>
+            </button>
+            <button id="btn-play" class="btn-icon btn-play-large" title="Play">
+                <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button id="btn-pause" class="btn-icon btn-play-large hidden" title="Pause">
+                <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            </button>
+            <button id="btn-next" class="btn-icon" title="Skip Forward">
+                <svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="settings-modal">
+        <div class="settings-box">
+            <div class="settings-header">
+                <h2>Settings</h2>
+                <button class="btn-icon" id="close-settings">✕</button>
+            </div>
+            <div class="setting-row">
+                <label>Voice</label>
+                <select id="voice-select"><option disabled selected>Loading...</option></select>
+            </div>
+            <div class="setting-row">
+                <label>Speed</label>
+                <select id="speed-select">
+                    <option value="0.8">0.8x</option>
+                    <option value="1.0" selected>1.0x</option>
+                    <option value="1.2">1.2x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="2.0">2.0x</option>
+                </select>
+            </div>
+            <hr style="border: 0; border-top: 1px solid #444; margin: 15px 0;">
+            <div class="setting-row">
+                <label>Note Sections</label>
+                <div class="settings-input-group">
+                    <input type="text" id="new-section-input" class="settings-input" placeholder="New Chapter Name...">
+                    <button id="btn-add-section" class="btn-add">+</button>
+                </div>
+                <label style="margin-top:5px; font-size: 11px;">Active Section for new notes:</label>
+                <select id="section-select">
+                    <option value="General">General</option>
+                </select>
+            </div>
+            <hr style="border: 0; border-top: 1px solid #444; margin: 15px 0;">
+            <div class="setting-row">
+                <label>Keyword Highlighter (Green)</label>
+                <textarea id="keywords-input" class="settings-textarea" placeholder="Paste words here&#10;One per line..."></textarea>
+                <div style="font-size: 11px; color: #888; margin-top: 4px;">Loads dynamically as you scroll.</div>
+            </div>
+            <hr style="border: 0; border-top: 1px solid #444; margin: 15px 0;">
+            <div class="setting-row">
+                <label>Skip Amount</label>
+                <select id="skip-select">
+                    <option value="1">1 Word</option>
+                    <option value="3">3 Words</option>
+                    <option value="sentence" selected>1 Sentence</option>
+                </select>
+            </div>
+            <div class="setting-row toggle-row" style="display:flex; justify-content:space-between; align-items:center;">
+                <label style="margin:0;">Auto-Scroll</label>
+                <label class="switch">
+                    <input type="checkbox" id="auto-scroll-check" checked>
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="setting-row toggle-row" style="display:flex; justify-content:space-between; align-items:center;">
+                <label style="margin:0;">Skip Citations ([1])</label>
+                <label class="switch">
+                    <input type="checkbox" id="skip-citations-check">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <button id="btn-reset-app" class="btn-danger">Reset Layout & Settings</button>
+        </div>
+    </div>
+
+    <div id="viewer-wrapper"></div>
+    <div class="library-sidebar" id="library-sidebar">
+        <div class="library-header">
+            <h3>Library</h3>
+            <button class="btn-icon" id="close-library">✕</button>
+        </div>
+        <div class="library-content" id="library-content">
+            </div>
+        <div style="padding: 15px; border-top: 1px solid #333;">
+            <button class="btn-add-cat" id="btn-add-category">+ New Category</button>
+        </div>
+    </div>
+
+<script>
+    const pdfjsLib = window['pdfjs-dist/build/pdf'];
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    // --- GLOBAL STATE ---
+    let docSpans = []; 
+    let sentences = []; 
+    let notes = []; 
+    const synth = window.speechSynthesis;
+    let activeUtterance = null;
+    let scale = 1.5;
+    let currentWordIndex = 0;
+    let availableVoices = [];
+    let isPlayingState = false;
+    
+    // Notes & Keywords
+    let noteSections = ["General"];
+    let currentSection = "General";
+    let keywordsSet = new Set();
+    let keywordObserver = null; 
+    let noteModeActive = false;
+    
+    // Library
+    let libraryCategories = ["Uncategorized", "Work", "Study"];
+    let currentFileId = null;
+
+    let settings = {
+        voiceURI: null,
+        speed: "1.0",
+        scale: 1.5, // <--- ADD THIS (Default Zoom)
+        autoScroll: true,
+        skipMode: "sentence",
+        lastWordIndex: 0,
+        sidebarWidth: 350,
+        noteSections: ["General"],
+        currentSection: "General",
+        keywords: "",
+        highlightMode: false,
+        libraryCategories: ["Uncategorized", "Work", "Study"],
+        skipCitations: false 
+    };
+
+    // --- DOM ELEMENTS ---
+    const wrapper = document.getElementById('viewer-wrapper');
+    const upload = document.getElementById('file-upload');
+    const speedSelect = document.getElementById('speed-select');
+    const voiceSelect = document.getElementById('voice-select');
+    const skipSelect = document.getElementById('skip-select');
+    const autoScrollCheck = document.getElementById('auto-scroll-check');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const btnPlay = document.getElementById('btn-play');
+    const btnPause = document.getElementById('btn-pause');
+    const settingsModal = document.getElementById('settings-modal');
+    
+    // Notes UI
+    const btnToggleNotes = document.getElementById('btn-toggle-notes');
+    const notesSidebar = document.getElementById('notes-sidebar');
+    const notesList = document.getElementById('notes-list');
+    const btnCopyNotes = document.getElementById('btn-copy-notes');
+
+    // Library UI
+    const btnToggleLibrary = document.getElementById('btn-toggle-library');
+    const librarySidebar = document.getElementById('library-sidebar');
+    const libraryContent = document.getElementById('library-content');
+    const btnAddCategory = document.getElementById('btn-add-category');
+    const closeLibrary = document.getElementById('close-library');
+
+    // --- DATABASE ---
+    const DB_NAME = "SpeechifyCloneDB";
+    const DB_VERSION = 2; 
+    const STORE_FILES = "files"; 
+    const STORE_LIBRARY = "library";
+    let db;
+
+    const initDB = () => {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
+            request.onupgradeneeded = (e) => {
+                const database = e.target.result;
+                if (!database.objectStoreNames.contains(STORE_LIBRARY)) {
+                    database.createObjectStore(STORE_LIBRARY, { keyPath: "id" });
+                }
+                if (!database.objectStoreNames.contains(STORE_FILES)) {
+                    database.createObjectStore(STORE_FILES);
+                }
+            };
+            request.onsuccess = (e) => { db = e.target.result; resolve(db); };
+            request.onerror = () => reject("DB Error");
+        });
+    };
+
+    const saveToLibrary = (file, category = "Uncategorized") => {
+        saveCurrentFileProgress();
+        return new Promise((resolve) => {
+            const tx = db.transaction(STORE_LIBRARY, "readwrite");
+            const store = tx.objectStore(STORE_LIBRARY);
+            
+            // 1. Check for duplicates first
+            const req = store.getAll();
+            req.onsuccess = () => {
+                const existing = req.result.find(f => f.name === file.name && f.data.size === file.size);
+                
+                if (existing) {
+                    // Found it! Use existing ID and existing notes
+                    console.log("File already exists, loading existing record...");
+                    currentFileId = existing.id;
+                    notes = existing.notes || [];
+                    currentWordIndex = existing.lastWordIndex || 0;
+                    renderLibrary();
+                    resolve();
+                } else {
+                    // 2. New File - Create new record
+                    const fileRecord = {
+                        id: Date.now(),
+                        name: file.name,
+                        date: new Date().toLocaleDateString(),
+                        category: category,
+                        data: file,
+                        notes: [],
+                        lastWordIndex: 0
+                    };
+                    store.add(fileRecord);
+                    currentFileId = fileRecord.id;
+                    notes = [];
+                    currentWordIndex = 0;
+                    renderLibrary();
+                    resolve();
+                }
+            };
+        });
+    };
+
+    const loadFromLibrary = (id) => {
+        saveCurrentFileProgress();
+        const tx = db.transaction(STORE_LIBRARY, "readonly");
+        // Ensure ID is integer
+        tx.objectStore(STORE_LIBRARY).get(parseInt(id)).onsuccess = async (e) => {
+            const record = e.target.result;
+            if (record) {
+                currentFileId = record.id;
+                currentWordIndex = record.lastWordIndex || 0;
+                
+                // Load notes from DB
+                notes = record.notes || [];
+                
+                // Render them immediately
+                renderNotes();
+
+                saveSettings();
+                loadingOverlay.classList.remove('hidden');
+                await loadPDF(await record.data.arrayBuffer());
+                restoreReadingPosition();
+                loadingOverlay.classList.add('fade-out');
+                renderLibrary();
+            }
+        };
+    };
+
+    const updateFileCategory = (id, newCategory) => {
+        const tx = db.transaction(STORE_LIBRARY, "readwrite");
+        const store = tx.objectStore(STORE_LIBRARY);
+        store.get(parseInt(id)).onsuccess = (e) => {
+            const data = e.target.result;
+            if (data) {
+                data.category = newCategory;
+                store.put(data);
+                renderLibrary();
+            }
+        };
+    };
+
+    const deleteFromLibrary = (id) => {
+        if(!confirm("Remove file history?")) return;
+        const tx = db.transaction(STORE_LIBRARY, "readwrite");
+        tx.objectStore(STORE_LIBRARY).delete(parseInt(id));
+        tx.oncomplete = () => renderLibrary();
+    };
+
+    // --- SETTINGS & INITIALIZATION ---
+    function loadSettings() {
+        const saved = localStorage.getItem('speechify-settings');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            settings = { ...settings, ...parsed };
+            if (parsed.noteSections) noteSections = parsed.noteSections;
+            if (parsed.currentSection) currentSection = parsed.currentSection;
+            if (parsed.libraryCategories) libraryCategories = parsed.libraryCategories;
+            if (parsed.keywords) {
+                document.getElementById('keywords-input').value = parsed.keywords;
+                updateKeywordsSet(parsed.keywords);
+            }
+            settings.skipCitations = parsed.skipCitations || false;
+            document.getElementById('skip-citations-check').checked = settings.skipCitations;
+        }
+
+        if (typeof settings.scale === 'number') {
+            scale = settings.scale;
+            document.getElementById('zoom-level').textContent = `${Math.round(scale * 100)}%`;
+        }
+        
+        speedSelect.value = settings.speed;
+        autoScrollCheck.checked = settings.autoScroll;
+        skipSelect.value = settings.skipMode;
+        currentWordIndex = 0;
+        
+        if (settings.sidebarWidth) {
+            notesSidebar.style.width = `${settings.sidebarWidth}px`;
+        }
+
+        noteModeActive = settings.highlightMode || false;
+        updateNoteModeUI(); 
+        updateSectionDropdown();
+    }
+
+    function saveSettings() {
+        settings.speed = speedSelect.value;
+        settings.autoScroll = autoScrollCheck.checked;
+        settings.skipMode = skipSelect.value;
+        
+        // --- DELETED THE VOICE SELECT BLOCK FROM HERE ---
+        // This prevents overwriting your saved voice if the dropdown 
+        // temporarily defaults to "Google US English" on load.
+
+        settings.scale = scale;
+        settings.lastWordIndex = currentWordIndex;
+        settings.noteSections = noteSections;
+        settings.currentSection = document.getElementById('section-select').value;
+        settings.keywords = document.getElementById('keywords-input').value;
+        settings.highlightMode = noteModeActive;
+        settings.libraryCategories = libraryCategories;
+        settings.currentFileId = currentFileId;
+        settings.skipCitations = document.getElementById('skip-citations-check').checked;
+
+        if (notesSidebar.style.width) settings.sidebarWidth = parseInt(notesSidebar.style.width);
+
+        localStorage.setItem('speechify-settings', JSON.stringify(settings));
+        saveCurrentFileProgress();
+    }
+
+    function updateCurrentFileRecord(updates) {
+        const safeId = parseInt(currentFileId);
+        if (!safeId || !db) return;
+        const tx = db.transaction(STORE_LIBRARY, "readwrite");
+        const store = tx.objectStore(STORE_LIBRARY);
+        
+        store.get(safeId).onsuccess = (e) => {
+            const data = e.target.result;
+            if (!data) return;
+            if (Object.prototype.hasOwnProperty.call(updates, 'notes')) {
+                data.notes = JSON.parse(JSON.stringify(updates.notes || []));
+            }
+            if (typeof updates.lastWordIndex === 'number') {
+                data.lastWordIndex = updates.lastWordIndex;
+            }
+            store.put(data);
+        };
+    }
+
+    function saveCurrentFileProgress() {
+        updateCurrentFileRecord({ lastWordIndex: currentWordIndex || 0 });
+    }
+
+    function saveNotes() {
+        updateCurrentFileRecord({ notes });
+        renderNotes();
+    }
+
+    window.addEventListener('DOMContentLoaded', async () => {
+        initKeywordObserver();
+        await initDB();
+        
+        loadSettings(); // 1. Settings load first (retrieving your voiceURI)
+        
+        // 2. NOW we populate voices, so it knows which one to select
+        populateVoices();
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = () => {
+                populateVoices();
+                // Re-select if the list reloaded
+                const savedOption = Array.from(voiceSelect.options).find(o => o.getAttribute('data-uri') === settings.voiceURI);
+                if(savedOption) savedOption.selected = true;
+            };
+        }
+
+        if(typeof renderLibrary === 'function') renderLibrary();
+
+        const tx = db.transaction(STORE_LIBRARY, "readonly");
+        const store = tx.objectStore(STORE_LIBRARY);
+        const req = store.getAll();
+    
+        req.onsuccess = async () => {
+            const files = req.result;
+            if (files.length > 0) {
+                let fileToLoad = files[files.length - 1];
+
+                if (settings.currentFileId) {
+                    const savedFile = files.find(f => f.id === settings.currentFileId);
+                    if (savedFile) fileToLoad = savedFile;
+                }
+
+                currentFileId = fileToLoad.id;
+
+                notes = fileToLoad.notes || []; 
+                currentWordIndex = fileToLoad.lastWordIndex || 0;
+                renderNotes();
+
+                loadingOverlay.classList.remove('hidden');
+                await loadPDF(await fileToLoad.data.arrayBuffer());
+                restoreReadingPosition();
+                loadingOverlay.classList.add('fade-out');
+                
+                renderLibrary();
+            }
+        };
+    });
+
+    document.getElementById('btn-settings').addEventListener('click', () => settingsModal.classList.add('open'));
+    document.getElementById('close-settings').addEventListener('click', () => settingsModal.classList.remove('open'));
+    document.getElementById('close-notes').addEventListener('click', () => {
+        noteModeActive = false;
+        updateNoteModeUI();
+        saveSettings();
+    });
+    settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) settingsModal.classList.remove('open'); });
+
+    upload.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        await saveToLibrary(file);
+        saveNotes();
+        saveSettings();
+        await loadPDF(await file.arrayBuffer());
+        restoreReadingPosition();
+    });
+
+    speedSelect.addEventListener('change', saveSettings);
+    skipSelect.addEventListener('change', saveSettings);
+    autoScrollCheck.addEventListener('change', saveSettings);
+    // Only update the voice setting when the USER actually changes the dropdown
+    voiceSelect.addEventListener('change', (e) => {
+        const selectedOption = e.target.selectedOptions[0];
+        if (selectedOption && selectedOption.getAttribute('data-uri')) {
+            settings.voiceURI = selectedOption.getAttribute('data-uri');
+            saveSettings();
+        }
+    });
+
+    document.getElementById('skip-citations-check').addEventListener('change', saveSettings);
+
+    document.getElementById('btn-reset-app').addEventListener('click', () => {
+        if (confirm("Reset layout, speed, voice, and position? (Notes will stay safe)")) {
+            settings = {
+                voiceURI: null,
+                speed: "1.0",
+                autoScroll: true,
+                skipMode: "sentence",
+                lastWordIndex: 0,
+                sidebarWidth: 350,
+                noteSections: ["General"],
+                currentSection: "General",
+                keywords: "",
+                highlightMode: false,
+                libraryCategories: ["Uncategorized", "Work", "Study"]
+            };
+            localStorage.setItem('speechify-settings', JSON.stringify(settings));
+            window.location.reload();
+        }
+    });
+
+    function updateNoteModeUI() {
+        if (noteModeActive) {
+            document.body.classList.add('mode-notes');
+            btnToggleNotes.classList.add('active');
+            notesSidebar.classList.add('open');
+        } else {
+            document.body.classList.remove('mode-notes');
+            btnToggleNotes.classList.remove('active');
+            notesSidebar.classList.remove('open');
+        }
+    }
+
+    btnToggleNotes.addEventListener('click', () => {
+        noteModeActive = !noteModeActive;
+        updateNoteModeUI();
+        saveSettings();
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (!noteModeActive) return;
+        const selection = window.getSelection();
+        const text = selection.toString().trim();
+        if (text.length > 0) {
+            notes.push({ text: text.replace(/\s+/g, ' '), section: currentSection, level: 0 });
+            saveNotes();
+            selection.removeAllRanges();
+        }
+    });
+
+    let dragSrcEl = null;
+    let dragStartX = 0;
+    let dragStartLevel = 0;
+
+    function renderNotes() {
+        const list = document.getElementById('notes-list');
+        list.innerHTML = '';
+        
+        const groups = {};
+        noteSections.forEach(sec => groups[sec] = []);
+        
+        notes.forEach((note, index) => {
+            if (typeof note.level === 'undefined') note.level = 0;
+            const sec = note.section || "General";
+            if (!groups[sec]) groups[sec] = [];
+            groups[sec].push({ ...note, originalIndex: index });
+        });
+
+        Object.keys(groups).forEach(section => {
+            const header = document.createElement('div');
+            header.className = 'note-section-title';
+            header.textContent = section;
+            list.appendChild(header);
+
+            groups[section].forEach(item => {
+                const li = document.createElement('li');
+                li.className = 'note-item';
+                li.setAttribute('data-level', item.level);
+                li.setAttribute('draggable', 'true'); 
+                li.dataset.section = section;
+                
+                li.innerHTML = `
+                    <div class="vertical-drag-handle" title="Drag to Move or Indent">⋮⋮</div>
+                    <div class="note-marker-container"></div>
+                    <div class="note-text" contenteditable="true">${item.text}</div>
+                    <button class="btn-delete" title="Delete Note">✕</button>
+                `;
+
+                li.querySelector('.note-text').addEventListener('blur', (e) => {
+                    notes[item.originalIndex].text = e.target.innerHTML; // Changed to innerHTML
+                    saveNotes();
+                });
+                
+                li.querySelector('.btn-delete').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if(confirm("Delete this note?")) {
+                        notes.splice(item.originalIndex, 1);
+                        saveNotes();
+                    }
+                });
+
+                li.addEventListener('dragstart', (e) => {
+                    if (e.target.classList.contains('note-text') || e.target.classList.contains('btn-delete')) {
+                        e.preventDefault();
+                        return;
+                    }
+                    dragSrcEl = li;
+                    dragStartX = e.clientX;
+                    dragStartLevel = parseInt(li.getAttribute('data-level'));
+                    e.dataTransfer.effectAllowed = 'move';
+                    setTimeout(() => li.classList.add('dragging'), 0);
+                });
+
+                li.addEventListener('drag', (e) => {
+                    if (e.clientX === 0) return;
+                    const diffX = e.clientX - dragStartX;
+                    const levelChange = Math.floor(diffX / 30);
+                    let newLevel = dragStartLevel + levelChange;
+                    if (newLevel < 0) newLevel = 0;
+                    if (newLevel > 7) newLevel = 7;
+                    if (parseInt(li.getAttribute('data-level')) !== newLevel) {
+                        li.setAttribute('data-level', newLevel);
+                    }
+                });
+
+                li.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    const target = e.target.closest('.note-item');
+                    if (target && target !== dragSrcEl && dragSrcEl) {
+                        if (target.dataset.section === dragSrcEl.dataset.section) {
+                            const rect = target.getBoundingClientRect();
+                            const next = (e.clientY - rect.top) / (rect.bottom - rect.top) > 0.5;
+                            target.parentNode.insertBefore(dragSrcEl, next ? target.nextSibling : target);
+                        }
+                    }
+                });
+
+                li.querySelector('.note-text').addEventListener('paste', (e) => {
+                    e.preventDefault();
+                    // Get the HTML, but rely on browser to clean it slightly, or insert pure HTML
+                    const text = (e.clipboardData || window.clipboardData).getData('text/html') || 
+                                (e.clipboardData || window.clipboardData).getData('text/plain');
+
+                    // Simple strategy: Insert the HTML manually so it doesn't bring wrapper block styles
+                    document.execCommand('insertHTML', false, text);
+                });
+
+                li.addEventListener('dragend', () => {
+                    li.classList.remove('dragging');
+                    notes[item.originalIndex].level = parseInt(li.getAttribute('data-level'));
+                    dragSrcEl = null;
+                    rebuildNotesArray();
+                });
+
+                list.appendChild(li);
+            });
+
+            const addBtn = document.createElement('button');
+            addBtn.className = 'btn-add-note-placeholder';
+            addBtn.textContent = "+ Type here to add a note...";
+            addBtn.addEventListener('click', () => {
+                notes.push({ text: "", section: section, level: 0 });
+                saveNotes();
+                setTimeout(() => {
+                    const allNotes = document.querySelectorAll('.note-text');
+                    if(allNotes.length > 0) allNotes[allNotes.length - 1].focus();
+                }, 50);
+            });
+            list.appendChild(addBtn);
+        });
+    }
+
+    function rebuildNotesArray() {
+        const newNotes = [];
+        const list = document.getElementById('notes-list');
+        let currentSec = "General";
+        
+        Array.from(list.children).forEach(child => {
+            if (child.classList.contains('note-section-title')) {
+                currentSec = child.textContent;
+            } else if (child.classList.contains('note-item')) {
+                const text = child.querySelector('.note-text').innerHTML; // Changed to innerHTML
+                const level = parseInt(child.getAttribute('data-level'));
+                newNotes.push({ text, section: currentSec, level });
+            }
+        });
+        notes = newNotes;
+        updateCurrentFileRecord({ notes });
+    }
+
+    document.getElementById('btn-copy-notes').addEventListener('click', async () => {
+        if (notes.length === 0) return;
+
+        let plainText = "";
+        let htmlContent = '<html><body>'; 
+        let counters = { level0: 0, level1: 0 };
+
+        const getMarker = (level) => {
+            switch(level) {
+                case 0: return `${counters.level0}.`; 
+                case 1: return `${String.fromCharCode(96 + counters.level1)}.`;
+                case 2: return "→";
+                case 3: return "•";
+                case 4: return "○";
+                case 5: return "▪";
+                case 6: return "-";
+                case 7: return "*";
+                default: return "•";
+            }
+        };
+
+        noteSections.forEach(sec => {
+            const sectionNotes = notes.filter(n => (n.section || "General") === sec);
+            if (sectionNotes.length > 0) {
+                plainText += `\n[ ${sec.toUpperCase()} ]\n`;
+                htmlContent += `<h3 style="margin-top: 15px; border-bottom: 1px solid #ccc; color: #333;">${sec}</h3>`;
+                counters.level0 = 0; counters.level1 = 0;
+
+                sectionNotes.forEach(n => {
+                    const level = n.level || 0;
+                    if (level === 0) { counters.level0++; counters.level1 = 0; }
+                    else if (level === 1) { counters.level1++; }
+
+                    const marker = getMarker(level);
+                    const text = n.text || "";
+                    const indentTabs = "\t".repeat(level); 
+                    plainText += `${indentTabs}${marker} ${text}\n`;
+                    const indentPx = level * 30;
+                    htmlContent += `
+                        <div style="margin-left: ${indentPx}px; margin-bottom: 4px; font-family: Arial, sans-serif; font-size: 11pt;">
+                            <span style="font-weight: bold; display: inline-block; min-width: 25px;">${marker}</span>
+                            <span>${text}</span>
+                        </div>
+                    `;
+                });
+            }
+        });
+        
+        htmlContent += '<' + '/body>' + '<' + '/html>';
+
+        try {
+            const textBlob = new Blob([plainText], { type: 'text/plain' });
+            const htmlBlob = new Blob([htmlContent], { type: 'text/html' });
+            await navigator.clipboard.write([
+                new ClipboardItem({ 'text/plain': textBlob, 'text/html': htmlBlob })
+            ]);
+            showCopySuccess();
+        } catch (err) {
+            try {
+                await navigator.clipboard.writeText(plainText);
+                showCopySuccess();
+            } catch (err2) {
+                alert("Clipboard denied.");
+            }
+        }
+
+        function showCopySuccess() {
+            const btn = document.getElementById('btn-copy-notes');
+            const originalText = btn.textContent;
+            btn.textContent = "Copied!";
+            btn.style.background = "#22c55e"; btn.style.color = "black";
+            setTimeout(() => {
+                btn.textContent = originalText;
+                btn.style.background = "";
+                btn.style.color = "";
+            }, 2000);
+        }
+    });
+
+    function renderLibrary() {
+        if (!document.getElementById('library-sidebar')) return; 
+        const tx = db.transaction(STORE_LIBRARY, "readonly");
+        const store = tx.objectStore(STORE_LIBRARY);
+        const req = store.getAll();
+
+        req.onsuccess = () => {
+            const files = req.result;
+            if(!libraryContent) return;
+            libraryContent.innerHTML = '';
+            
+            const groups = {};
+            libraryCategories.forEach(cat => groups[cat] = []);
+            
+            files.forEach(file => {
+                const cat = file.category || "Uncategorized";
+                if (!groups[cat]) groups[cat] = [];
+                groups[cat].push(file);
+            });
+
+            Object.keys(groups).forEach(category => {
+                const catDiv = document.createElement('div');
+                catDiv.className = 'lib-category';
+                
+                const header = document.createElement('div');
+                header.className = 'lib-cat-header';
+                header.textContent = category;
+                
+                header.addEventListener('dragover', (e) => { e.preventDefault(); header.classList.add('drag-over'); });
+                header.addEventListener('dragleave', () => header.classList.remove('drag-over'));
+                header.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    header.classList.remove('drag-over');
+                    const fileId = e.dataTransfer.getData("text/plain");
+                    if (fileId) updateFileCategory(fileId, category);
+                });
+
+                catDiv.appendChild(header);
+
+                groups[category].sort((a,b) => b.id - a.id).forEach(file => {
+                    const item = document.createElement('div');
+                    item.className = `lib-item ${file.id === currentFileId ? 'active' : ''}`;
+                    item.draggable = true;
+                    item.innerHTML = `
+                        <div class="lib-item-icon">📄</div>
+                        <div class="lib-item-info">
+                            <div class="lib-item-title" title="${file.name}">${file.name}</div>
+                            <div class="lib-item-date">${file.date}</div>
+                        </div>
+                        <button class="btn-delete-file">✕</button>
+                    `;
+                    item.addEventListener('click', (e) => {
+                        if(!e.target.classList.contains('btn-delete-file')) loadFromLibrary(file.id);
+                    });
+                    item.querySelector('.btn-delete-file').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        deleteFromLibrary(file.id);
+                    });
+                    item.addEventListener('dragstart', (e) => {
+                        e.dataTransfer.setData("text/plain", file.id);
+                    });
+                    catDiv.appendChild(item);
+                });
+                libraryContent.appendChild(catDiv);
+            });
+        };
+    }
+
+    if(btnAddCategory) {
+        btnAddCategory.addEventListener('click', () => {
+            const name = prompt("New Category Name:");
+            if (name && !libraryCategories.includes(name)) {
+                libraryCategories.push(name);
+                saveSettings();
+                renderLibrary();
+            }
+        });
+    }
+
+    if(btnToggleLibrary) {
+        btnToggleLibrary.addEventListener('click', () => {
+            librarySidebar.classList.toggle('open');
+            if(librarySidebar.classList.contains('open')) renderLibrary();
+        });
+        closeLibrary.addEventListener('click', () => librarySidebar.classList.remove('open'));
+    }
+
+    function updateSectionDropdown() {
+        const select = document.getElementById('section-select');
+        select.innerHTML = '';
+        noteSections.forEach(sec => {
+            const opt = document.createElement('option');
+            opt.value = sec; opt.textContent = sec;
+            if (sec === currentSection) opt.selected = true;
+            select.appendChild(opt);
+        });
+    }
+    document.getElementById('btn-add-section').addEventListener('click', () => {
+        const input = document.getElementById('new-section-input');
+        const val = input.value.trim();
+        if (val && !noteSections.includes(val)) {
+            noteSections.push(val); currentSection = val;
+            updateSectionDropdown(); saveSettings(); input.value = '';
+        }
+    });
+    document.getElementById('section-select').addEventListener('change', (e) => {
+        currentSection = e.target.value; saveSettings();
+    });
+
+    document.getElementById('keywords-input').addEventListener('input', (e) => {
+        updateKeywordsSet(e.target.value); saveSettings();
+        document.querySelectorAll('.pdf-page').forEach(p => p.classList.remove('keywords-processed'));
+        handleVisiblePages(); 
+    });
+
+    function updateKeywordsSet(text) {
+        keywordsSet.clear();
+        const lines = text.split('\n');
+        lines.forEach(line => {
+            const word = line.trim().toLowerCase();
+            if (word.length > 0) keywordsSet.add(word);
+        });
+    }
+
+    function initKeywordObserver() {
+        if (keywordObserver) keywordObserver.disconnect();
+        const options = { root: null, rootMargin: '200px', threshold: 0.1 };
+        keywordObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const pageDiv = entry.target;
+                    if (!pageDiv.classList.contains('keywords-processed')) {
+                        highlightKeywordsInPage(pageDiv);
+                        pageDiv.classList.add('keywords-processed');
+                    }
+                }
+            });
+        }, options);
+    }
+
+    // --- PAGE COUNTER LOGIC ---
+    const pageCounter = document.getElementById('page-counter');
+    let totalPages = 0;
+    let pageObserver = null;
+
+    function initPageObserver() {
+        if (pageObserver) pageObserver.disconnect();
+
+        const options = {
+            root: document.getElementById('viewer-wrapper'), // Observe inside the scrollable wrapper
+            rootMargin: '-40% 0px -40% 0px', // Trigger only when the page is in the MIDDLE of screen
+            threshold: 0
+        };
+
+        pageObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const pageNum = entry.target.getAttribute('data-page-number');
+                    if (pageNum) {
+                        pageCounter.textContent = `Page ${pageNum} of ${totalPages}`;
+                    }
+                }
+            });
+        }, options);
+    }
+
+    function highlightKeywordsInPage(pageDiv) {
+        if (keywordsSet.size === 0) return;
+        const spans = pageDiv.querySelectorAll('.word-span');
+        spans.forEach(span => {
+            const text = span.innerText.toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g,"").trim();
+            span.classList.remove('keyword-highlight');
+            if (keywordsSet.has(text)) span.classList.add('keyword-highlight');
+        });
+    }
+    function handleVisiblePages() {
+        const pages = document.querySelectorAll('.pdf-page');
+        pages.forEach(page => {
+            const rect = page.getBoundingClientRect();
+            if (rect.top < window.innerHeight && rect.bottom >= 0) {
+                page.classList.remove('keywords-processed');
+                highlightKeywordsInPage(page);
+                page.classList.add('keywords-processed');
+            }
+        });
+    }
+
+    // --- PDF ENGINE ---
+
+    let currentPdfDoc = null; // Store the PDF document globally
+    let renderTask = false;   // Prevent zooming while already rendering
+
+    // Zoom Handlers
+    document.getElementById('btn-zoom-in').addEventListener('click', () => changeZoom(0.25));
+    document.getElementById('btn-zoom-out').addEventListener('click', () => changeZoom(-0.25));
+
+    function changeZoom(delta) {
+        if (!currentPdfDoc || renderTask) return;
+        
+        const newScale = scale + delta;
+        if (newScale < 0.5 || newScale > 5.0) return; // Limits: 50% to 500%
+
+        scale = newScale;
+        document.getElementById('zoom-level').textContent = `${Math.round(scale * 100)}%`;
+        saveSettings();
+        // Re-render pages with new scale
+        renderAllPages();
+    }
+    async function loadPDF(buffer) {
+        // 1. Load the Document
+        currentPdfDoc = await pdfjsLib.getDocument(buffer).promise;
+        
+        // 2. Setup Page Counters
+        totalPages = currentPdfDoc.numPages;
+        pageCounter.textContent = `Page 1 of ${totalPages}`;
+        initPageObserver();
+
+        // 3. Render
+        await renderAllPages();
+    }
+
+    function restoreReadingPosition() {
+        if (currentWordIndex <= 0) return;
+        setTimeout(() => {
+            if (currentWordIndex < docSpans.length) {
+                highlightRelative(currentWordIndex, 0);
+                docSpans[currentWordIndex]?.scrollIntoView({ block: 'center' });
+            }
+        }, 500);
+    }
+
+    async function renderAllPages() {
+        if (!currentPdfDoc) return;
+        renderTask = true;
+
+        // Remember current scroll position relative to the document height
+        const currentScrollTop = wrapper.scrollTop;
+        const currentScrollHeight = wrapper.scrollHeight;
+        const scrollRatio = currentScrollTop / currentScrollHeight;
+
+        wrapper.innerHTML = ''; 
+        docSpans = [];
+        
+        // Loop through all pages
+        for (let pageNum = 1; pageNum <= currentPdfDoc.numPages; pageNum++) {
+            await renderPage(currentPdfDoc, pageNum);
+        }
+        
+        prepareSentences();
+        
+        // Restore Highlights if reading
+        if (currentWordIndex > 0 && currentWordIndex < docSpans.length) {
+             highlightRelative(currentWordIndex, 0);
+        }
+
+        // Restore Scroll Position
+        if (wrapper.scrollHeight > 0) {
+            wrapper.scrollTop = scrollRatio * wrapper.scrollHeight;
+        }
+
+        renderTask = false;
+    }
+    async function renderPage(pdf, pageNumber) {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale });
+        const pageDiv = document.createElement('div');
+        pageDiv.className = 'pdf-page';
+        
+        // Add attribute for the observer
+        pageDiv.setAttribute('data-page-number', pageNumber); 
+        
+        pageDiv.style.width = `${viewport.width}px`;
+        pageDiv.style.height = `${viewport.height}px`;
+        pageDiv.style.setProperty('--scale-factor', scale);
+        wrapper.appendChild(pageDiv);
+
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = viewport.width; canvas.height = viewport.height;
+        pageDiv.appendChild(canvas);
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        const textLayerDiv = document.createElement('div');
+        textLayerDiv.className = 'textLayer';
+        pageDiv.appendChild(textLayerDiv);
+
+        const textContent = await page.getTextContent();
+        await pdfjsLib.renderTextLayer({
+            textContentSource: textContent, container: textLayerDiv,
+            viewport: viewport, textDivs: []
+        }).promise;
+
+        await tokenizeWithRetry(textLayerDiv);
+        
+        // Re-attach Observers
+        if (keywordObserver) keywordObserver.observe(pageDiv);
+        if (pageObserver) pageObserver.observe(pageDiv);
+    }
+
+    function tokenizeWithRetry(textLayerDiv) {
+        return new Promise((resolve) => {
+            const checkAndTokenize = (attempts = 0) => {
+                const lines = Array.from(textLayerDiv.querySelectorAll('span'));
+                if (lines.length > 0) {
+                    lines.forEach(lineSpan => {
+                        const text = lineSpan.innerText;
+                        if (!text || !text.trim()) return;
+                        const segments = text.split(/([\s\u00A0]+)/); 
+                        lineSpan.innerHTML = ''; 
+                        segments.forEach(segment => {
+                            if (segment.trim().length > 0) {
+                                const wordSpan = document.createElement('span');
+                                wordSpan.innerText = segment;
+                                wordSpan.className = 'word-span';
+                                const globalIndex = docSpans.length;
+                                docSpans.push(wordSpan);
+                                wordSpan.addEventListener('click', (e) => {
+                                    if (noteModeActive) { e.stopPropagation(); return; }
+                                    e.stopPropagation();
+                                    playFromWordIndex(globalIndex);
+                                    togglePlayState(true);
+                                });
+                                lineSpan.appendChild(wordSpan);
+                            } else {
+                                lineSpan.appendChild(document.createTextNode(segment));
+                            }
+                        });
+                    });
+                    resolve();
+                } else if (attempts < 20) {
+                    setTimeout(() => checkAndTokenize(attempts + 1), 50);
+                } else { resolve(); }
+            };
+            checkAndTokenize();
+        });
+    }
+
+    function prepareSentences() {
+        sentences = [];
+        let currentIndices = [];
+        docSpans.forEach((span, index) => {
+            currentIndices.push(index);
+            if (/[.!?](\s|$)/.test(span.innerText)) {
+                sentences.push([...currentIndices]);
+                currentIndices = [];
+            }
+        });
+        if (currentIndices.length > 0) sentences.push(currentIndices);
+    }
+
+    // --- PLAYBACK ---
+    function togglePlayState(isPlaying) {
+        isPlayingState = isPlaying;
+        if (isPlaying) {
+            btnPlay.classList.add('hidden'); btnPause.classList.remove('hidden');
+        } else {
+            btnPlay.classList.remove('hidden'); btnPause.classList.add('hidden');
+        }
+    }
+    btnPlay.addEventListener('click', () => {
+        if (synth.paused) synth.resume();
+        else playFromWordIndex(currentWordIndex);
+        togglePlayState(true);
+    });
+    btnPause.addEventListener('click', () => { synth.pause(); togglePlayState(false); });
+    
+    document.getElementById('btn-prev').addEventListener('click', () => handleSkip(-1));
+    document.getElementById('btn-next').addEventListener('click', () => handleSkip(1));
+
+    function handleSkip(direction) {
+        const wasPlaying = synth.speaking && !synth.paused;
+        synth.cancel();
+        let targetIndex = currentWordIndex;
+        if (settings.skipMode === 'sentence') {
+            const currentSentIdx = sentences.findIndex(s => s.includes(currentWordIndex));
+            if (currentSentIdx !== -1) {
+                const newSentIdx = currentSentIdx + direction;
+                if (newSentIdx >= 0 && newSentIdx < sentences.length) targetIndex = sentences[newSentIdx][0];
+                else if (direction === 1) targetIndex = docSpans.length - 1;
+                else targetIndex = 0;
+            }
+        } else {
+            targetIndex = currentWordIndex + (parseInt(settings.skipMode) * direction);
+        }
+        if (targetIndex < 0) targetIndex = 0;
+        if (targetIndex >= docSpans.length) targetIndex = docSpans.length - 1;
+        currentWordIndex = targetIndex;
+        saveSettings();
+        highlightRelative(targetIndex, 0); 
+        if (wasPlaying) { playFromWordIndex(targetIndex); togglePlayState(true); } else togglePlayState(false);
+    }
+
+    function playFromWordIndex(index, forcedSentenceIdx = -1) {
+        synth.cancel();
+
+        let sentIdx = forcedSentenceIdx;
+
+        // Find the sentence containing the current word index
+        if (sentIdx === -1) {
+            sentIdx = sentences.findIndex(s => s.includes(index));
+            if (sentIdx === -1) {
+                 sentIdx = sentences.findIndex(s => {
+                    if (s.length === 0) return false;
+                    return index >= s[0] && index <= s[s.length-1];
+                 });
+            }
+        }
+
+        if (sentIdx === -1) { 
+            console.warn("End of readable text or error finding sentence.");
+            return; 
+        }
+
+        const targetSentence = sentences[sentIdx];
+        const startOfSentenceIndex = targetSentence[0];
+
+        // 1. Get Raw Text
+        let textChunk = targetSentence.map(i => docSpans[i].innerText).join(' ');
+        
+        // 2. SKIP CITATIONS LOGIC (ALL STYLES)
+        if (settings.skipCitations) {
+            const patterns = [
+                // --- 1. NUMBERED CITATIONS [1], [1-5] ---
+                /\[\s*(\d+[\s,–-]*)+\s*\]/g,
+
+                // --- 2. PARENTHETICAL NUMBERS (1), (12-15) ---
+                /\(\s*(\d+[\s,–-]*)+\s*\)/g,
+
+                // --- 3. STANDARD APA/HARVARD (Smith, 2021) ---
+                // Looks for (Capital Letter ... 4-digit Year ...)
+                /\((?=[A-Z])(?:[^)]*?\b(?:19|20)\d{2}[a-z]?\b[^)]*?)\)/g,
+
+                // --- 4. NARRATIVE APA (2021) or (2021, p. 55) ---
+                // This preserves "Smith" in "Smith (2021)" but hides the year.
+                // Logic: ( Starts with 19xx or 20xx, optional 'a/b', optional comma/text )
+                /\((?:19|20)\d{2}[a-z]?(?:[,;]\s*[^)]*)?\)/g,
+
+                // --- 5. SQUARE BRACKET AUTHOR [Smith 2021] ---
+                /\[(?=[A-Z])(?:[^\]]*?\b(?:19|20)\d{2}[a-z]?\b[^\]]*?)\]/g,
+                
+                // --- 6. URL CLEANUP ---
+                /https?:\/\/[^\s)]+/g
+            ];
+
+            // Apply patterns
+            patterns.forEach(regex => {
+                textChunk = textChunk.replace(regex, (match) => {
+                    // Replace with silence (spaces) to keep highlighting synchronized
+                    return " ".repeat(match.length);
+                });
+            });
+        }
+
+        currentWordIndex = startOfSentenceIndex;
+        saveSettings();
+
+        // 3. Create Utterance
+        activeUtterance = new SpeechSynthesisUtterance(textChunk);
+        activeUtterance.rate = parseFloat(settings.speed);
+
+        const selectedOption = voiceSelect.selectedOptions[0];
+        if (selectedOption) {
+            const uri = selectedOption.getAttribute('data-uri');
+            const voice = availableVoices.find(v => v.voiceURI === uri);
+            if (voice) activeUtterance.voice = voice;
+        }
+
+        activeUtterance.onboundary = (e) => {
+            if (e.name === 'word') {
+                highlightRelative(startOfSentenceIndex, e.charIndex);
+            }
+        };
+
+        activeUtterance.onend = () => {
+            if (isPlayingState) {
+                const nextSentIdx = sentIdx + 1;
+                if (nextSentIdx < sentences.length) {
+                    playFromWordIndex(sentences[nextSentIdx][0], nextSentIdx);
+                } else {
+                    togglePlayState(false);
+                }
+            } else {
+                resetHighlights();
+            }
+        };
+
+        synth.speak(activeUtterance);
+    }
+
+    function highlightRelative(baseIndex, charOffset) {
+        resetHighlights();
+        
+        let charCount = 0;
+
+        for (let i = baseIndex; i < docSpans.length; i++) {
+            const span = docSpans[i];
+            const len = span.innerText.length;
+            
+
+            if (charOffset >= charCount && charOffset < (charCount + len + 1)) {
+                
+                currentWordIndex = i;
+                span.classList.add('word-active');
+                
+                if (settings.autoScroll) {
+                    span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+
+                if (!span.classList.contains('sentence-active')) {
+                     document.querySelectorAll('.sentence-active').forEach(s => s.classList.remove('sentence-active'));
+                     const sent = sentences.find(s => s.includes(i));
+                     if (sent) sent.forEach(idx => docSpans[idx].classList.add('sentence-active'));
+                }
+                
+                break;
+            }
+            
+            charCount += (len + 1);
+        }
+    }
+    function resetHighlights() { document.querySelectorAll('.word-active').forEach(s => s.classList.remove('word-active')); }
+
+    function populateVoices() {
+        availableVoices = synth.getVoices();
+        if (availableVoices.length === 0) return;
+        voiceSelect.innerHTML = '';
+        availableVoices.forEach((voice, index) => {
+            const option = document.createElement('option');
+            option.textContent = `${voice.name} (${voice.lang})`;
+            option.value = index;
+            option.setAttribute('data-uri', voice.voiceURI);
+            if (settings.voiceURI && voice.voiceURI === settings.voiceURI) option.selected = true;
+            else if (!settings.voiceURI && voice.default) option.selected = true;
+            voiceSelect.appendChild(option);
+        });
+    }
+
+    if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = populateVoices;
+        setInterval(() => { 
+
+        if (synth.speaking && isPlayingState) { 
+            synth.pause(); 
+            synth.resume(); 
+        } 
+    }, 10000);
+
+
+    const sidebar = document.getElementById('notes-sidebar');
+    const resizer = document.getElementById('sidebar-resizer');
+    let isResizingSidebar = false;
+
+    resizer.addEventListener('mousedown', (e) => {
+        isResizingSidebar = true;
+        document.body.style.cursor = 'col-resize';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizingSidebar) return;
+        const newWidth = window.innerWidth - e.clientX;
+        if (newWidth > 250 && newWidth < 800) {
+            sidebar.style.width = `${newWidth}px`;
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizingSidebar) {
+            isResizingSidebar = false;
+            document.body.style.cursor = 'default';
+            settings.sidebarWidth = parseInt(sidebar.style.width);
+            saveSettings();
+        }
+    });
+</script>
+</body>
+</html>
+
